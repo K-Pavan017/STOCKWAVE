@@ -1,140 +1,198 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Button, Form, Spinner, Alert } from 'react-bootstrap';
 import axios from 'axios';
+import { Spinner, Alert, ButtonGroup, Button } from 'react-bootstrap';
 
 export default function PredictionPage() {
   const { ticker } = useParams();
   const [days, setDays] = useState(30);
-  const [priceComparisonGraph, setPriceComparisonGraph] = useState(null);
+  const [priceChart, setPriceChart] = useState(null);
   const [candlestickChart, setCandlestickChart] = useState(null);
-  const [threeMonthComparisonChart, setThreeMonthComparisonChart] = useState(null); // NEW
+  const [oneYearChart, setOneYearChart] = useState(null);
+  const [next30Chart, setNext30Chart] = useState(null);
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [darkMode, setDarkMode] = useState(false);
+
+  const formatNumber = (num) => {
+    if (typeof num === 'number') return num.toLocaleString();
+    return num;
+  };
+
+  const formatPercent = (num) => {
+    if (typeof num === 'number') return `${(num * 100).toFixed(2)}%`;
+    return num;
+  };
 
   const fetchPrediction = async () => {
-    if (!ticker) return;
+    if (!ticker) {
+      setError('No ticker symbol provided.');
+      return;
+    }
+
     setLoading(true);
     setError('');
-    setPriceComparisonGraph(null);
+    setPriceChart(null);
     setCandlestickChart(null);
-    setThreeMonthComparisonChart(null); // NEW
+    setOneYearChart(null);
+    setNext30Chart(null);
     setInfo(null);
 
     try {
       const res = await axios.get(`http://localhost:5000/api/predict?ticker=${ticker}&days=${days}`);
-      const { price_comparison_graph, candlestick_chart, info: summary, industry, three_month_comparison_chart } = res.data;
+      const data = res.data;
 
-      if (price_comparison_graph && candlestick_chart) {
-        setPriceComparisonGraph(price_comparison_graph);
-        setCandlestickChart(candlestick_chart);
-        setThreeMonthComparisonChart(three_month_comparison_chart || null); // NEW
-
-        setInfo({
-          name: ticker.toUpperCase(),
-          description: summary || "No description available.",
-          industry: industry || "N/A"
-        });
-      } else {
-        setError("No prediction data available.");
-      }
+      setPriceChart(data.price_comparison_graph);
+      setCandlestickChart(data.candlestick_chart);
+      setOneYearChart(data.one_year_comparison_chart);
+      setNext30Chart(data.next_30_days_chart);
+      setInfo(data.info || 'No info available');
     } catch (err) {
-      console.error("❌ Error fetching prediction:", err);
-      setError(err?.response?.data?.error || "Failed to fetch prediction. Please try again.");
+      console.error(err);
+      setError(err.response?.data?.error || 'Failed to fetch prediction.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchPrediction();
+    if (ticker) {
+      fetchPrediction();
+    }
   }, [ticker, days]);
 
-  return (
-    <div className="container py-4">
-      <h2 className="mb-4">Predictions for {ticker.toUpperCase()}</h2>
+  const dayOptions = [
+    { label: '1 Day', value: 1 },
+    { label: '1 Week', value: 7 },
+    { label: '1 Month', value: 30 },
+    { label: '3 Months', value: 90 },
+    { label: '6 Months', value: 180 },
+    { label: '1 Year', value: 365 },
+  ];
 
-      <Form className="mb-4">
-        <Form.Group>
-          <Form.Label>Prediction Duration</Form.Label>
-          <Form.Control
-            as="select"
-            value={days}
-            onChange={(e) => setDays(parseInt(e.target.value))}
-            style={{ maxWidth: '200px' }}
-          >
-            <option value={30}>1 Month</option>
-            <option value={60}>2 Months</option>
-            <option value={90}>3 Months</option>
-            <option value={180}>6 Months</option>
-            <option value={365}>1 Year</option>
-            <option value={730}>2 Years</option>
-          </Form.Control>
-        </Form.Group>
+  // Style objects for dark/light mode
+  const containerStyle = {
+    backgroundColor: darkMode ? '#121212' : '#fff',
+    color: darkMode ? '#e0e0e0' : '#212529',
+    minHeight: '100vh',
+    paddingBottom: '3rem',
+    transition: 'all 0.3s ease',
+  };
+
+  const buttonVariant = darkMode ? 'outline-light' : 'outline-success';
+
+  return (
+    <div className="container py-4" style={containerStyle}>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h2>Predictions for {ticker?.toUpperCase()}</h2>
         <Button
-          type="button"
-          className="mt-2"
-          variant="primary"
-          onClick={fetchPrediction}
-          disabled={loading}
+          variant={darkMode ? 'light' : 'dark'}
+          onClick={() => setDarkMode(!darkMode)}
+          style={{ minWidth: '120px' }}
         >
-          {loading ? "Predicting..." : "Predict"}
+          {darkMode ? 'Light Mode' : 'Dark Mode'}
         </Button>
-      </Form>
+      </div>
+
+      <div className="my-3 d-flex flex-wrap align-items-center justify-content-start gap-3">
+        <div>
+          <label className="mb-2 d-block"><strong>Prediction Duration</strong></label>
+          <ButtonGroup aria-label="Prediction duration buttons">
+            {dayOptions.map(({ label, value }) => (
+              <Button
+                key={value}
+                variant={days === value ? 'success' : buttonVariant}
+                onClick={() => setDays(value)}
+                disabled={loading}
+                style={{ minWidth: '80px' }}
+              >
+                {label}
+              </Button>
+            ))}
+          </ButtonGroup>
+        </div>
+
+        <div style={{ marginTop: '28px' }}>
+          <Button
+            onClick={fetchPrediction}
+            disabled={loading}
+            variant={darkMode ? 'light' : 'success'}
+            style={{ minWidth: '130px', height: '38px' }}
+          >
+            {loading ? 'Predicting...' : 'Predict'}
+          </Button>
+        </div>
+      </div>
 
       {loading && (
         <div className="my-4 text-center">
-          <Spinner animation="border" role="status" />
+          <Spinner animation="border" variant={darkMode ? 'light' : 'primary'} />
           <p>Loading prediction...</p>
         </div>
       )}
 
       {error && <Alert variant="danger">{error}</Alert>}
 
-      {!loading && priceComparisonGraph && (
+      {next30Chart && (
         <div className="mb-5">
-          <h4>Original vs Predicted Prices</h4>
+          <h4>Next 30 Days Price Prediction</h4>
           <img
-            src={`data:image/png;base64,${priceComparisonGraph}`}
-            alt="Original vs Predicted Prices Chart"
+            src={`data:image/png;base64,${next30Chart}`}
+            alt="Next 30 Days Chart"
             className="img-fluid border rounded"
+            style={{ borderColor: darkMode ? '#444' : undefined }}
           />
         </div>
       )}
 
-      {!loading && candlestickChart && (
+      {candlestickChart && (
         <div className="mb-5">
           <h4>Candlestick Chart</h4>
           <img
             src={`data:image/png;base64,${candlestickChart}`}
             alt="Candlestick Chart"
             className="img-fluid border rounded"
+            style={{ borderColor: darkMode ? '#444' : undefined }}
           />
-          <p className="text-muted">
-            Shows opening, closing, high, and low prices over the last 30 days.
-          </p>
         </div>
       )}
 
-      {!loading && threeMonthComparisonChart && (
+      {oneYearChart && (
         <div className="mb-5">
-          <h4>3-Month Actual vs Predicted Prices</h4>
+          <h4>1-Year Actual vs Predicted</h4>
           <img
-            src={`data:image/png;base64,${threeMonthComparisonChart}`}
-            alt="3-Month Prediction Comparison"
+            src={`data:image/png;base64,${oneYearChart}`}
+            alt="1-Year Chart"
             className="img-fluid border rounded"
+            style={{ borderColor: darkMode ? '#444' : undefined }}
           />
-          <p className="text-muted">This chart shows predicted vs actual prices over the past 90 days.</p>
         </div>
       )}
 
       {!loading && info && (
         <div className="mb-5">
           <h4>Company Info</h4>
-          <p><strong>Name:</strong> {info.name}</p>
-          <p><strong>Description:</strong> {info.description}</p>
-          <p><strong>Industry:</strong> {info.industry}</p>
+          {info && info !== 'No info available' ? (
+            <>
+              <p><strong>Name:</strong> {info.name}</p>
+              <p><strong>Description:</strong> {info.description}</p>
+              <p><strong>Industry:</strong> {info.industry}</p>
+              <p><strong>Market Cap:</strong> {formatNumber(info.marketCap)}</p>
+              <p><strong>Previous Close:</strong> {formatNumber(info.previousClose)}</p>
+              <p><strong>Open:</strong> {formatNumber(info.open)}</p>
+              <p><strong>Day High:</strong> {formatNumber(info.dayHigh)}</p>
+              <p><strong>Day Low:</strong> {formatNumber(info.dayLow)}</p>
+              <p><strong>Dividend Rate:</strong> {formatNumber(info.dividendRate)}</p>
+              <p><strong>Dividend Yield:</strong> {formatPercent(info.dividendYield)}</p>
+              <p><strong>IPO Date:</strong> {info.ipoDate}</p>
+              <p><strong>Profit Margins:</strong> {formatPercent(info.profitMargins)}</p>
+              <p><strong>Beta:</strong> {info.beta}</p>
+              <p><strong>Risk:</strong> {info.risk}</p>
+            </>
+          ) : (
+            <p>No company info available.</p>
+          )}
         </div>
       )}
     </div>

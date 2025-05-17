@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+"""from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
 import numpy as np
@@ -14,18 +14,15 @@ from keras.models import Sequential
 from keras.layers import Dense, LSTM
 import logging
 
-# Initialize app and logging
 app = Flask(__name__)
 CORS(app)
 logging.basicConfig(level=logging.INFO)
 
-# Load S&P 500 symbols
 SYMBOL_LOOKUP = pd.read_csv(
     "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
 )
 TRENDING_TICKERS = ['AAPL', 'TSLA', 'AMZN', 'GOOGL', 'MSFT', 'NFLX', 'NVDA', 'META', 'INTC', 'BA', 'SPY', 'XOM']
 
-# 🔷 Candlestick chart
 def generate_candlestick_chart(data, prediction_days=30):
     df = data.tail(prediction_days)
     df.index.name = 'Date'
@@ -43,7 +40,6 @@ def generate_candlestick_chart(data, prediction_days=30):
     buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
-# 🔷 Price vs Prediction chart
 def generate_price_prediction_chart(actual, predicted, ticker):
     plt.figure(figsize=(10, 5))
     plt.plot(range(len(actual)), actual, label='Historical Prices')
@@ -58,27 +54,16 @@ def generate_price_prediction_chart(actual, predicted, ticker):
     buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
-# 🔷 3-month comparison chart
-def generate_three_month_chart(data, model, scaler):
-    prediction_days = 90
-    scaled_data = scaler.transform(data.reshape(-1, 1))
-
-    X_test, y_true = [], []
-    for i in range(60, 60 + prediction_days):
-        X_test.append(scaled_data[i - 60:i, 0])
-        y_true.append(scaled_data[i, 0])
-
-    X_test = np.array(X_test).reshape((-1, 60, 1))
-    predictions = model.predict(X_test)
-    predicted_prices = scaler.inverse_transform(predictions.reshape(-1, 1)).flatten()
-    actual_prices = scaler.inverse_transform(np.array(y_true).reshape(-1, 1)).flatten()
-
-    plt.figure(figsize=(10, 4))
-    plt.plot(actual_prices, label="Actual Prices", linewidth=2)
-    plt.plot(predicted_prices, label="Predicted Prices", linestyle='dashed')
-    plt.title("Actual vs Predicted - Last 3 Months")
-    plt.xlabel("Days")
-    plt.ylabel("Price (USD)")
+def generate_one_year_overlay_chart(actual, predicted, ticker):
+    trimmed_actual = actual[-len(predicted):]
+    if len(trimmed_actual) != len(predicted):
+        predicted = predicted[:len(trimmed_actual)]
+    plt.figure(figsize=(10, 5))
+    plt.plot(trimmed_actual, label='Actual Prices', color='blue')
+    plt.plot(predicted, label='Predicted Prices', color='orange')  # Same line style, different color
+    plt.title(f'{ticker} - 1-Year Actual vs Predicted')
+    plt.xlabel('Days')
+    plt.ylabel('Price (USD)')
     plt.legend()
     buf = BytesIO()
     plt.savefig(buf, format='png')
@@ -86,7 +71,6 @@ def generate_three_month_chart(data, model, scaler):
     buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
-# 🔷 LSTM model
 def train_lstm_model(data, prediction_days, return_model=False):
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(data.reshape(-1, 1))
@@ -117,7 +101,7 @@ def train_lstm_model(data, prediction_days, return_model=False):
         return predicted_prices, model, scaler
     return predicted_prices
 
-# 🔷 Prediction Endpoint
+
 @app.route('/api/predict')
 def predict():
     ticker = request.args.get('ticker')
@@ -136,31 +120,63 @@ def predict():
             return jsonify({'error': 'Invalid ticker symbol'}), 404
 
         close_prices = df['Close'].values
-
         predictions, model, scaler = train_lstm_model(close_prices, days, return_model=True)
 
         price_chart = generate_price_prediction_chart(close_prices, predictions, ticker)
         candlestick_chart = generate_candlestick_chart(df, days)
-        three_month_chart = generate_three_month_chart(close_prices, model, scaler)
 
+        # Generate 1-Year comparison chart
+        one_year_data = close_prices[-365:]
+        one_year_scaled = scaler.transform(one_year_data.reshape(-1, 1))
+
+        X_test = []
+        for i in range(60, len(one_year_scaled)):
+            X_test.append(one_year_scaled[i - 60:i, 0])
+        X_test = np.array(X_test).reshape((len(X_test), 60, 1))
+        one_year_pred_scaled = model.predict(X_test)
+        one_year_predictions = scaler.inverse_transform(one_year_pred_scaled)
+
+        one_year_chart = generate_one_year_overlay_chart(one_year_data[60:], one_year_predictions[:, 0], ticker)
+
+        # Fetch company information
         try:
-            info = stock.info.get('longBusinessSummary', 'No info available')
+            stock_info = stock.info
+            info = {
+                'name': stock_info.get('longName', 'N/A'),
+                'description': stock_info.get('longBusinessSummary', 'N/A'),
+                'industry': stock_info.get('industry', 'N/A'),
+                'marketCap': stock_info.get('marketCap', 'N/A'),
+                'previousClose': stock_info.get('previousClose', 'N/A'),
+                'open': stock_info.get('open', 'N/A'),
+                'dayHigh': stock_info.get('dayHigh', 'N/A'),
+                'dayLow': stock_info.get('dayLow', 'N/A'),
+                'dividendRate': stock_info.get('dividendRate', 'N/A'),
+                'dividendYield': stock_info.get('dividendYield', 'N/A'),
+                'ipoDate': stock_info.get('ipoExpectedDate', 'N/A'),
+                'profitMargins': stock_info.get('profitMargins', 'N/A'),
+                'beta': stock_info.get('beta', 'N/A'),
+                'risk': stock_info.get('recommendationKey', 'N/A')
+            }
+        except KeyError as e:
+            logging.warning(f"KeyError: Missing key {e} in stock info for {ticker}")
+            info = {'name': 'N/A', 'description': 'N/A'}
+
         except Exception as e:
             logging.warning(f"Stock info fetch failed for {ticker}: {e}")
-            info = 'No info available'
+            info = {'name': 'N/A', 'description': 'N/A'}
 
         return jsonify({
             'predictions': predictions.tolist(),
             'price_comparison_graph': price_chart,
             'candlestick_chart': candlestick_chart,
-            'three_month_comparison_chart': three_month_chart,
+            'one_year_comparison_chart': one_year_chart,
             'info': info
         })
     except Exception as e:
         logging.error(f"Prediction error for {ticker}: {e}")
         return jsonify({'error': 'Failed to generate prediction'}), 500
 
-# 🔷 Trending Stocks
+
 @app.route('/api/trending')
 def get_trending_stocks():
     try:
@@ -182,7 +198,6 @@ def get_trending_stocks():
         logging.error(f"Trending error: {e}")
         return jsonify([]), 500
 
-# 🔷 Top Losers
 @app.route('/api/top_losers')
 def get_top_losers():
     losers = ['BA', 'XOM', 'NVDA', 'GOOGL', 'AMZN', 'META']
@@ -205,7 +220,6 @@ def get_top_losers():
         logging.error(f"Losers error: {e}")
         return jsonify([]), 500
 
-# 🔷 Search Endpoint
 @app.route('/api/search')
 def search_tickers():
     query = request.args.get('ticker', '').upper()
@@ -215,6 +229,135 @@ def search_tickers():
     matches = SYMBOL_LOOKUP[SYMBOL_LOOKUP['Symbol'].str.contains(query, na=False)]
     results = matches[['Symbol', 'Name']].rename(columns={'Symbol': 'symbol', 'Name': 'name'}).to_dict(orient='records')
     return jsonify(results)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+"""
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import logging
+import os
+import pandas as pd
+
+from stock_data import (
+    fetch_company_info,
+    get_trending_stocks,
+    get_top_losers,
+    search_tickers
+)
+from model import train_lstm_model,predict_next_days
+from charts import (
+    generate_next_30_days_prediction_chart,
+    #generate_price_prediction_chart,
+    generate_candlestick_chart,
+    generate_one_year_overlay_chart
+)
+from utils import setup_logger, is_valid_ticker, validate_prediction_days, handle_error
+
+# Initialize Flask app and CORS
+app = Flask(__name__)
+CORS(app)
+
+# Setup logger
+logger = setup_logger()
+
+# Create data directory if needed
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+os.makedirs(DATA_DIR, exist_ok=True)
+
+@app.route('/predict_chart/<string:ticker>', methods=['GET'])
+def get_prediction_chart(ticker):
+    predicted_prices = predict_next_days(ticker, 30)
+    if not predicted_prices:
+        return jsonify({'error': 'Prediction failed'}), 500
+
+    next_30_days_chart = generate_next_30_days_prediction_chart(predicted_prices, ticker)
+    if  next_30_days_chart is None:
+        return jsonify({'error': 'Chart generation failed'}), 500
+
+    return jsonify({'ticker': ticker, 'chart':  next_30_days_chart})
+
+@app.route('/api/predict')
+def predict():
+    ticker = request.args.get('ticker')
+    days = request.args.get('days', default=30, type=int)
+
+    if not is_valid_ticker(ticker):
+        logger.error(f"Invalid ticker: {ticker}")
+        return jsonify(handle_error("Invalid ticker symbol", 400)), 400
+
+    if not validate_prediction_days(days):
+        logger.error(f"Invalid prediction range: {days}")
+        return jsonify(handle_error("Prediction range must be between 1 and 730 days", 400)), 400
+
+    try:
+        # Fetch stock data and train LSTM model, returns close_prices, predictions, model, scaler, dataframe
+        close_prices, predictions, model, scaler, df = train_lstm_model(ticker, days, return_model=True)
+
+        # Ensure dataframe index is datetime
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+
+        # Generate charts as base64 strings
+        #price_chart = generate_price_prediction_chart(close_prices, predictions, ticker)
+        candlestick_chart = generate_candlestick_chart(df, days)
+        # Assuming `predicted_prices` is your list/array of future predicted prices
+        predicted_prices = predict_next_days(ticker ,30)
+        next_30_days_chart = generate_next_30_days_prediction_chart(predicted_prices, ticker)
+
+
+        one_year_data = close_prices[-365:] if len(close_prices) >= 365 else close_prices
+        one_year_chart = generate_one_year_overlay_chart(one_year_data, predictions[:len(one_year_data)], ticker)
+
+        # Fetch company info dictionary
+        info = fetch_company_info(ticker)
+
+        return jsonify({
+            'predictions': predictions.tolist(),
+          #  'price_comparison_graph': price_chart,
+            'candlestick_chart': candlestick_chart,
+             'next_30_days_chart': next_30_days_chart,
+            'one_year_comparison_chart': one_year_chart,
+            'info': info
+        })
+    except Exception as e:
+        logger.error(f"Prediction error for {ticker}: {e}", exc_info=True)
+        return jsonify(handle_error("Failed to generate prediction", 500)), 500
+
+
+@app.route('/api/trending')
+def trending():
+    try:
+        data = get_trending_stocks()
+        return jsonify(data)
+    except Exception as e:
+        logger.error(f"Trending error: {e}", exc_info=True)
+        return jsonify([]), 500
+
+
+@app.route('/api/top_losers')
+def top_losers():
+    try:
+        data = get_top_losers()
+        return jsonify(data)
+    except Exception as e:
+        logger.error(f"Top losers error: {e}", exc_info=True)
+        return jsonify([]), 500
+
+
+@app.route('/api/search')
+def search():
+    query = request.args.get('ticker', '').upper()
+    if not query:
+        return jsonify([])
+
+    try:
+        result = search_tickers(query)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Search error: {e}", exc_info=True)
+        return jsonify([]), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True)

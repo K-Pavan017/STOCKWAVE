@@ -1,0 +1,51 @@
+/* Letter-by-letter effect for StockWave */
+.stockwave-text {
+  font-size: 50px;
+  font-weight: bold;
+  color: transparent;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1;
+}
+
+.stock-text, .wave-text {
+  display: inline-block;
+  opacity: 0;
+  animation: typing 2s steps(10) forwards;
+}
+
+.stock-text {
+  color: red;
+  animation-delay: 0.5s;
+}
+
+.wave-text {
+  color: green;
+  animation-delay: 2.5s;
+}
+
+@keyframes typing {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Black input fields */
+.black-input {
+  background-color: black;
+  color: white;
+  border: 1px solid #ccc;
+  border-radius: 0;
+  padding: 0.375rem 0.75rem;
+  width: 100%;
+}
+
+.black-input::placeholder {
+  color: #aaa; /* Optional: style the placeholder */
+}
+
+.black-input:focus {
+  border-color: #007bff; /* Blue border when focused */
+  outline: none; /* Remove default outline */
+}
+

@@ -51,22 +51,37 @@ export default function StockDashboard() {
   };
 
   useEffect(() => {
-    const fetchTrendingStocks = async () => {
-      try {
-        const res = await axios.get('http://localhost:5000/api/trending');
-        setTrending(res.data);
-      } catch (error) {
-        console.error("Error fetching trending stocks:", error);
-      }
-    };
+   const fetchTrendingStocks = async () => {
+  try {
+    const res = await axios.get('http://localhost:5000/api/trending');
+    if (Array.isArray(res.data)) {
+      setTrending(res.data);
+    } else if (Array.isArray(res.data.stocks)) {
+      // e.g., if your backend returns { stocks: [...] }
+      setTrending(res.data.stocks);
+    } else {
+      setTrending([]);
+    }
+  } catch (error) {
+    console.error("Error fetching trending stocks:", error);
+    setTrending([]);
+  }    
+};
+const fetchTopLosers = async () => {
+  try {
+    const res = await axios.get('http://localhost:5000/api/top_losers');
+    if (Array.isArray(res.data)) {
+      setTopLosers(res.data);
+    } else if (Array.isArray(res.data.stocks)) {
+      setTopLosers(res.data.stocks);
+    } else {
+      setTopLosers([]);
+    }
+  } catch (error) {
+    console.error("Error fetching top losers:", error);
+    setTopLosers([]);
+  };
 
-    const fetchTopLosers = async () => {
-      try {
-        const res = await axios.get('http://localhost:5000/api/top_losers');
-        setTopLosers(res.data);
-      } catch (error) {
-        console.error("Error fetching top losers:", error);
-      }
     };
 
     fetchTrendingStocks();
@@ -139,8 +154,8 @@ export default function StockDashboard() {
             whiteSpace: 'nowrap',
           }}
         >
-          {trending.length > 0 ? (
-            trending.map((stock, idx) => (
+          {Array.isArray(trending) && trending.length > 0 ? (
+              trending.map((stock, idx) => (
               <Card
                 key={idx}
                 className={`me-3 shadow-sm ${darkMode ? "bg-secondary text-light" : "bg-white"}`}
