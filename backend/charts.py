@@ -68,75 +68,45 @@ def generate_next_30_days_prediction_chart(predicted, ticker):
     encoded = base64.b64encode(buf.read()).decode('utf-8')
     return encoded
 
+def generate_one_year_overlay_chart(actual, predicted, ticker, num_days=365):
+    """
+    Generates a base64-encoded PNG overlay chart comparing actual prices with predictions
+    over a user-specified number of days.
+    If predicted data is shorter than num_days, pads with last predicted value.
 
-"""
-def generate_price_prediction_chart(actual, predicted, ticker):
-    from her e to line 46 is comment Generates a base64-encoded PNG line chart showing actual vs predicted prices.
-    :param actual: List or array of historical prices.
+    :param actual: List or array of historical prices (must be at least num_days).
     :param predicted: List or array of predicted prices.
     :param ticker: Stock ticker symbol string.
-    :return: base64-encoded PNG image string or None on error.
-
-    if actual is None or predicted is None:
-        print("Error: Actual or predicted data is None.")
-        return None
-
-    if len(actual) == 0 or len(predicted) == 0:
-        print("Error: No data to plot.")
-        return None
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(range(len(actual)), actual, label='Historical Prices')
-    plt.plot(range(len(actual), len(actual) + len(predicted)), predicted, label='Predicted Prices', linestyle='dashed')
-    plt.title(f'{ticker} - Price Prediction')
-    plt.xlabel('Days')
-    plt.ylabel('Price (USD)')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.6)
-
-    buf = BytesIO()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    encoded = base64.b64encode(buf.read()).decode('utf-8')
-    return encoded
-"""
-
-def generate_one_year_overlay_chart(actual, predicted, ticker):
-    """
-    Generates a base64-encoded PNG overlay chart comparing 1-year actual prices with predictions.
-    If predicted data is shorter than 365 days, pads with last predicted value.
-    :param actual: List or array of historical prices (must be at least 365).
-    :param predicted: List or array of predicted prices.
-    :param ticker: Stock ticker symbol string.
+    :param num_days: Number of days to plot (default 365).
     :return: base64-encoded PNG image string or None on error.
     """
-    if actual is None or len(actual) < 365:
-        print("Error: Insufficient actual data for one year.")
+    if actual is None or len(actual) < num_days:
+        print(f"Error: Insufficient actual data for {num_days} days.")
         return None
 
-    trimmed_actual = actual[-365:]
+    trimmed_actual = actual[-num_days:]
 
     if predicted is None or len(predicted) == 0:
         print("Error: Predicted data is empty or None.")
         return None
 
-    # Pad predicted data to 365 days if needed
-    if len(predicted) < 365:
-        predicted = list(predicted) + [predicted[-1]] * (365 - len(predicted))
+    # Pad predicted data to num_days if needed
+    if len(predicted) < num_days:
+        predicted = list(predicted) + [predicted[-1]] * (num_days - len(predicted))
 
-    if len(predicted) != 365:
+    if len(predicted) != num_days:
         print("Error: Predicted data length mismatch after padding.")
         return None
 
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(12, 6))
     plt.plot(trimmed_actual, label='Actual Prices', color='blue', linestyle='-', linewidth=2)
     plt.plot(predicted, label='Predicted Prices', color='orange', linestyle='-', linewidth=2)
-    plt.title(f'{ticker} - 1-Year Actual vs Predicted', fontsize=14)
-    plt.xlabel('Days', fontsize=12)
-    plt.ylabel('Price (USD)', fontsize=12)
+    plt.title(f'{ticker} - Last {num_days} Days Actual vs Predicted', fontsize=16)
+    plt.xlabel('Days', fontsize=14)
+    plt.ylabel('Price (USD)', fontsize=14)
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
 
     buf = BytesIO()
     plt.savefig(buf, format='png')

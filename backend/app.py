@@ -234,21 +234,20 @@ if __name__ == '__main__':
     app.run(debug=True)
 """
 from flask import Flask, request, jsonify
+import yfinance as yf
+
 from flask_cors import CORS
-import logging
 import os
 import pandas as pd
-
 from stock_data import (
     fetch_company_info,
     get_trending_stocks,
     get_top_losers,
     search_tickers
 )
-from model import train_lstm_model,predict_next_days
+from model import train_lstm_model, predict_next_days
 from charts import (
     generate_next_30_days_prediction_chart,
-    #generate_price_prediction_chart,
     generate_candlestick_chart,
     generate_one_year_overlay_chart
 )
@@ -261,26 +260,24 @@ CORS(app)
 # Setup logger
 logger = setup_logger()
 
-# Create data directory if needed
+# Ensure data directory exists
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
-@app.route('/predict_chart/<string:ticker>', methods=['GET'])
-def get_prediction_chart(ticker):
-    predicted_prices = predict_next_days(ticker, 30)
-    if not predicted_prices:
-        return jsonify({'error': 'Prediction failed'}), 500
-
-    next_30_days_chart = generate_next_30_days_prediction_chart(predicted_prices, ticker)
-    if  next_30_days_chart is None:
-        return jsonify({'error': 'Chart generation failed'}), 500
-
-    return jsonify({'ticker': ticker, 'chart':  next_30_days_chart})
+def is_valid_ticker(ticker):
+    try:
+        data = yf.Ticker(ticker)
+        hist = data.history(period="1d")
+        return not hist.empty
+    except Exception:
+        return False
 
 @app.route('/api/predict')
 def predict():
     ticker = request.args.get('ticker')
     days = request.args.get('days', default=30, type=int)
+    if not ticker:
+        return jsonify({"error": "Ticker is required"}), 400
 
     if not is_valid_ticker(ticker):
         logger.error(f"Invalid ticker: {ticker}")
@@ -291,32 +288,28 @@ def predict():
         return jsonify(handle_error("Prediction range must be between 1 and 730 days", 400)), 400
 
     try:
-        # Fetch stock data and train LSTM model, returns close_prices, predictions, model, scaler, dataframe
+        # Train model and fetch data
         close_prices, predictions, model, scaler, df = train_lstm_model(ticker, days, return_model=True)
 
-        # Ensure dataframe index is datetime
+        # Ensure index is datetime
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
 
-        # Generate charts as base64 strings
-        #price_chart = generate_price_prediction_chart(close_prices, predictions, ticker)
+        # Generate charts
         candlestick_chart = generate_candlestick_chart(df, days)
-        # Assuming `predicted_prices` is your list/array of future predicted prices
-        predicted_prices = predict_next_days(ticker ,30)
+        predicted_prices = predict_next_days(ticker, 30)
         next_30_days_chart = generate_next_30_days_prediction_chart(predicted_prices, ticker)
-
 
         one_year_data = close_prices[-365:] if len(close_prices) >= 365 else close_prices
         one_year_chart = generate_one_year_overlay_chart(one_year_data, predictions[:len(one_year_data)], ticker)
 
-        # Fetch company info dictionary
+        # Fetch company info
         info = fetch_company_info(ticker)
 
         return jsonify({
             'predictions': predictions.tolist(),
-          #  'price_comparison_graph': price_chart,
             'candlestick_chart': candlestick_chart,
-             'next_30_days_chart': next_30_days_chart,
+            'next_30_days_chart': next_30_days_chart,
             'one_year_comparison_chart': one_year_chart,
             'info': info
         })
@@ -324,40 +317,48 @@ def predict():
         logger.error(f"Prediction error for {ticker}: {e}", exc_info=True)
         return jsonify(handle_error("Failed to generate prediction", 500)), 500
 
-
 @app.route('/api/trending')
 def trending():
     try:
-        data = get_trending_stocks()
-        return jsonify(data)
+        return jsonify(get_trending_stocks())
     except Exception as e:
         logger.error(f"Trending error: {e}", exc_info=True)
         return jsonify([]), 500
 
-
 @app.route('/api/top_losers')
 def top_losers():
     try:
-        data = get_top_losers()
-        return jsonify(data)
+        return jsonify(get_top_losers())
     except Exception as e:
         logger.error(f"Top losers error: {e}", exc_info=True)
         return jsonify([]), 500
-
 
 @app.route('/api/search')
 def search():
     query = request.args.get('ticker', '').upper()
     if not query:
         return jsonify([])
-
     try:
-        result = search_tickers(query)
-        return jsonify(result)
+        return jsonify(search_tickers(query))
     except Exception as e:
         logger.error(f"Search error: {e}", exc_info=True)
         return jsonify([]), 500
 
+@app.route('/predict_chart/<string:ticker>', methods=['GET'])
+def get_prediction_chart(ticker):
+    try:
+        predicted_prices = predict_next_days(ticker, 30)
+        if not predicted_prices:
+            return jsonify({'error': 'Prediction failed'}), 500
+
+        chart = generate_next_30_days_prediction_chart(predicted_prices, ticker)
+        if not chart:
+            return jsonify({'error': 'Chart generation failed'}), 500
+
+        return jsonify({'ticker': ticker, 'chart': chart})
+    except Exception as e:
+        logger.error(f"Chart prediction error for {ticker}: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

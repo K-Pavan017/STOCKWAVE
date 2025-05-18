@@ -37,12 +37,25 @@ def fetch_company_info(ticker: str) -> dict:
             "marketCap": "N/A",
         }
 
-def fetch_stock_data(ticker: str, period: str = '2y') -> pd.DataFrame:
+def fetch_stock_data(ticker: str, period: str = '2y', is_india: bool = False) -> pd.DataFrame:
     """
     Fetches historical stock data for the given ticker and period.
     Caches data locally as CSV in DATA_DIR to avoid redundant downloads.
     Ensures the DataFrame index is a DatetimeIndex.
+    
+    Parameters:
+    - ticker: stock symbol (without suffix for Indian stocks)
+    - period: data period like '1mo', '2y', etc.
+    - is_india: if True, appends '.NS' suffix for Indian NSE stocks automatically.
     """
+    if is_india:
+        if not ticker.upper().endswith('.NS') and not ticker.upper().endswith('.BO'):
+            ticker = ticker.upper() + '.NS'
+        else:
+            ticker = ticker.upper()
+    else:
+        ticker = ticker.upper()
+
     filepath = os.path.join(DATA_DIR, f"{ticker}_{period}.csv")
 
     if os.path.exists(filepath):
@@ -57,7 +70,6 @@ def fetch_stock_data(ticker: str, period: str = '2y') -> pd.DataFrame:
 
     # Ensure the index is a DatetimeIndex
     if not isinstance(df.index, pd.DatetimeIndex):
-        print("Converting index to DatetimeIndex...")
         df.index = pd.to_datetime(df.index)
 
     return df

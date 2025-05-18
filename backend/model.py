@@ -26,46 +26,45 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     logger.addHandler(handler)
 
+def sanitize_ticker_for_filename(ticker: str) -> str:
+    return ticker.replace('.', '_')
 
 def sanitize_datetime_index(df):
-    """
-    Ensure datetime index is timezone-naive (remove any tz info).
-    """
     if isinstance(df.index, pd.DatetimeIndex):
         if df.index.tz is not None:
-            # Convert to naive by removing tz info completely
             df.index = df.index.tz_localize(None)
-        else:
-            # Already naive, no action needed
-            pass
     else:
-        # Make sure index is datetime if possible
         df.index = pd.to_datetime(df.index, utc=True)
-
     return df
-
 
 def fetch_stock_data(ticker: str, period: str = '2y') -> pd.DataFrame:
-    filepath = os.path.join(DATA_DIR, f"{ticker}_{period}.csv")
-    
-    if os.path.exists(filepath):
-        logger.info(f"Loading cached data for {ticker}")
-        df = pd.read_csv(filepath, index_col=0, parse_dates=True)
-    else:
-        logger.info(f"Fetching new data for {ticker}")
-        df = yf.Ticker(ticker).history(period=period)
-        if df.empty or 'Close' not in df:
-            raise ValueError(f"No data or missing 'Close' prices for {ticker}.")
-        
+    ticker = ticker.upper().strip()
+    filepath = os.path.join(DATA_DIR, f"{ticker.replace('.', '_')}_{period}.csv")
+
+    try:
+        if os.path.exists(filepath):
+            logger.info(f"Loading cached data for {ticker}")
+            df = pd.read_csv(filepath, index_col=0, parse_dates=True)
+        else:
+            logger.info(f"Fetching new data for {ticker}")
+            stock = yf.Ticker(ticker)
+            df = stock.history(period=period)
+
+            if df.empty or 'Close' not in df.columns:
+                raise ValueError(f"No data or missing 'Close' prices for {ticker}.")
+
+            df = sanitize_datetime_index(df)
+            df.to_csv(filepath)
+
         df = sanitize_datetime_index(df)
-        df.to_csv(filepath)
+        logger.info(f"Fetched {len(df)} rows for {ticker}. Sample:\n{df.head()}")
+        return df
 
-    df = sanitize_datetime_index(df)
-    return df
-
+    except Exception as e:
+        logger.error(f"Failed to fetch data for {ticker}: {e}")
+        raise ValueError(f"Invalid or unsupported ticker: {ticker}")
 
 def build_lstm_model(input_shape: tuple, output_size: int) -> Sequential:
-    """Build and compile an LSTM model."""
     model = Sequential([
         LSTM(50, return_sequences=True, input_shape=input_shape),
         LSTM(50),
@@ -74,9 +73,7 @@ def build_lstm_model(input_shape: tuple, output_size: int) -> Sequential:
     model.compile(optimizer='adam', loss='mean_squared_error')
     return model
 
-
 def train_lstm_model(ticker: str, prediction_days: int = 5, epochs: int = 10, return_model: bool = False):
-    """Train an LSTM model for the given ticker."""
     df = fetch_stock_data(ticker)
     close_prices = df['Close'].values.reshape(-1, 1)
 
@@ -100,12 +97,12 @@ def train_lstm_model(ticker: str, prediction_days: int = 5, epochs: int = 10, re
     early_stop = EarlyStopping(monitor='loss', patience=3)
     model.fit(X_train, y_train, epochs=epochs, batch_size=32, verbose=1, callbacks=[early_stop])
 
-    model_path = os.path.join(MODEL_DIR, f"{ticker}_lstm_model.h5")
-    scaler_path = os.path.join(MODEL_DIR, f"{ticker}_scaler.pkl")
+    safe_ticker = sanitize_ticker_for_filename(ticker)
+    model_path = os.path.join(MODEL_DIR, f"{safe_ticker}_lstm_model.h5")
+    scaler_path = os.path.join(MODEL_DIR, f"{safe_ticker}_scaler.pkl")
     model.save(model_path)
     joblib.dump(scaler, scaler_path)
 
-    # Predict next values
     last_60_days = scaled_data[-60:]
     X_test = np.array([last_60_days]).reshape((1, 60, 1))
     prediction = model.predict(X_test)
@@ -117,9 +114,7 @@ def train_lstm_model(ticker: str, prediction_days: int = 5, epochs: int = 10, re
         return close_prices.flatten(), predicted_prices, model, scaler, df
     return predicted_prices
 
-
 def recursive_forecast(model, last_60_days: np.ndarray, scaler: MinMaxScaler, prediction_days: int):
-    """Recursively forecast multiple days using the last known data."""
     forecast = []
     input_seq = last_60_days.copy()
 
@@ -129,17 +124,15 @@ def recursive_forecast(model, last_60_days: np.ndarray, scaler: MinMaxScaler, pr
         next_price = scaler.inverse_transform([[next_scaled]])[0][0]
         forecast.append(next_price)
 
-        # Shift input sequence for next prediction
         input_seq = np.append(input_seq[1:], [[next_scaled]], axis=0)
 
     return forecast
 
-
 def predict_next_days(ticker: str, prediction_days: int = 30):
-    """Predict the next N days using a saved LSTM model."""
     try:
-        model_path = os.path.join(MODEL_DIR, f"{ticker}_lstm_model.h5")
-        scaler_path = os.path.join(MODEL_DIR, f"{ticker}_scaler.pkl")
+        safe_ticker = sanitize_ticker_for_filename(ticker)
+        model_path = os.path.join(MODEL_DIR, f"{safe_ticker}_lstm_model.h5")
+        scaler_path = os.path.join(MODEL_DIR, f"{safe_ticker}_scaler.pkl")
 
         if not os.path.exists(model_path) or not os.path.exists(scaler_path):
             raise FileNotFoundError(f"Model or scaler not found for {ticker}. Please train the model first.")
